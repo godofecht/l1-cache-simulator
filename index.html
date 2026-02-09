@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C++ Performance Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-flame-graph@4.1.3/dist/d3-flamegraph.min.js"></script>
+    <script src="https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        
+        /* Monaco Editor Container */
+        #monaco-editor-container {
+            height: 400px;
+            border: 1px solid #333;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        /* Hide old line numbers */
+        #lineNumbers {
+            display: none;
+        }
+        
+        /* Hide old textarea */
+        #codeInput {
+            display: none;
+        }
+        
+        /* Perfetto-style timeline */
+        .timeline-container {
+            background: #1e1e1e;
+            border: 1px solid #333;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .timeline-track {
+            background: #2a2a2a;
+            border-bottom: 1px solid #333;
+            height: 28px;
+            position: relative;
+        }
+        
+        .timeline-event {
+            position: absolute;
+            height: 24px;
+            top: 2px;
+            border-radius: 3px;
+            font-size: 10px;
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 6px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .timeline-event:hover {
+            transform: scaleY(1.05);
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        
+        /* Flame graph styles */
+        .flame-graph-container {
+            background: #1e1e1e;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .d3-flame-graph {
+            font-family: 'Inter', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 11px;
+        }
+        
+        .d3-flame-graph rect {
+            stroke: #333;
+            stroke-width: 1px;
+        }
+        
+        .d3-flame-graph text {
+            pointer-events: none;
+            text-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+        
+        /* Timeline colors */
+        .cpu-event { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .memory-event { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .cache-event { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+        .function-event { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+        .sync-event { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+        .branch-event { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
+        
+        .line-number {
+            color: #858585;
+            user-select: none;
+            padding-right: 1rem;
+            text-align: right;
+        }
+        
+        .highlight-line {
+            background-color: rgba(255, 255, 0, 0.1);
+            border-left: 3px solid #ffd700;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .analyzing {
+            animation: pulse 1.5s infinite;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 3px;
+            font-size: 11px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 250px;
+            border: 1px solid #333;
+        }
+        
+        /* Code playground styles */
+        .playground-section {
+            padding: 1rem;
+        }
+        
+        .playground-header {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #333;
+        }
+        
+        .playground-button {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.875rem;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+        
+        .playground-input {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- C++ Code Editor Panel -->
+            <section class="bg-gray-800 rounded-lg playground-section">
+                <div class="playground-header">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-medium text-gray-300">C++ Code</h2>
+                        <div class="flex space-x-2">
+                            <select id="templateSelect" class="bg-gray-700 text-gray-300 px-2 py-1 rounded text-xs playground-input">
+                                <option value="">Load Template...</option>
+                                <option value="basic">Basic Operations</option>
+                                <option value="vector">Vector Processing</option>
+                                <option value="matrix">Matrix Multiplication</option>
+                                <option value="cache">Cache Analysis</option>
+                                <option value="multithreading">Multithreading</option>
+                            </select>
+                            <button id="analyzeCode" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs font-medium playground-button">
+                                Run
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-900 rounded-lg overflow-hidden">
+                    <div id="monaco-editor-container"></div>
+                    <!-- Hidden fallback textarea -->
+                    <textarea id="codeInput" class="code-editor flex-1 p-4 bg-transparent resize-none outline-none text-sm" 
+                              placeholder="// Enter your C++ code here...
+
+#include <vector>
+#include <iostream>
+
+int main() {
+    std::vector<int> data(1000);
+    
+    for(int i = 0; i < 1000; i++) {
+        data[i] = i * 2;
+    }
+    
+    return 0;
+}"></textarea>
+                </div>
+                
+                <!-- Analysis Arguments -->
+                <div class="mt-3 bg-gray-900 rounded p-2">
+                    <h3 class="text-gray-400 font-medium mb-2 text-xs">Parameters:</h3>
+                    <div class="grid grid-cols-4 gap-2 text-xs">
+                        <div>
+                            <label class="text-gray-500">Array Size:</label>
+                            <input type="number" id="arraySize" value="1000" class="bg-gray-800 text-white px-2 py-1 rounded w-full playground-input">
+                        </div>
+                        <div>
+                            <label class="text-gray-500">Loop Iterations:</label>
+                            <input type="number" id="loopIterations" value="1000" class="bg-gray-800 text-white px-2 py-1 rounded w-full playground-input">
+                        </div>
+                        <div>
+                            <label class="text-gray-500">Thread Count:</label>
+                            <input type="number" id="threadCount" value="1" class="bg-gray-800 text-white px-2 py-1 rounded w-full playground-input">
+                        </div>
+                        <div>
+                            <label class="text-gray-500">Cache Line Size:</label>
+                            <input type="number" id="cacheLineSize" value="64" class="bg-gray-800 text-white px-2 py-1 rounded w-full playground-input">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Analysis Results Panel -->
+            <section class="bg-gray-800 rounded-lg playground-section">
+                <div class="playground-header">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-medium text-gray-300">Output</h2>
+                        <span id="analysisStatus" class="text-xs text-gray-500">Ready</span>
+                    </div>
+                </div>
+                
+                <div id="resultsContainer" class="space-y-2 overflow-auto" style="height: 400px;">
+                    <div class="text-gray-500 text-center py-6">
+                        <div class="mb-3">
+                            <svg class="w-12 h-12 mx-auto text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                            </svg>
+                        </div>
+                        Click "Run" to analyze your code...
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Timeline Visualization -->
+        <section id="timelineVisualization" class="mt-4 bg-gray-800 rounded-lg playground-section hidden">
+            <div class="playground-header">
+                <h2 class="text-sm font-medium text-gray-300">Performance Analysis</h2>
+            </div>
+            
+            <div class="p-3">
+                <!-- Timeline Tracks -->
+                <div class="mb-4">
+                    <h3 class="text-xs font-medium text-gray-400 mb-2">Timeline</h3>
+                    <div class="timeline-container">
+                        <div id="timelineTracks" class="p-3">
+                            <!-- Timeline tracks will be generated here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Statistics Dashboard -->
+                <div class="grid grid-cols-4 gap-3 mb-4">
+                    <div class="bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-blue-400" id="totalOps">0</div>
+                        <div class="text-xs text-gray-500">Operations</div>
+                    </div>
+                    <div class="bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-green-400" id="totalTime">0μs</div>
+                        <div class="text-xs text-gray-500">Time</div>
+                    </div>
+                    <div class="bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-yellow-400" id="maxDepth">0</div>
+                        <div class="text-xs text-gray-500">Depth</div>
+                    </div>
+                    <div class="bg-gray-900 rounded p-3 text-center">
+                        <div class="text-xl font-bold text-purple-400" id="hotspots">0</div>
+                        <div class="text-xs text-gray-500">Hotspots</div>
+                    </div>
+                </div>
+                
+                <!-- Detailed Breakdown -->
+                <div class="bg-gray-900 rounded p-3">
+                    <h3 class="text-xs font-medium text-gray-400 mb-2">Breakdown</h3>
+                    <div id="performanceBreakdown" class="space-y-2">
+                        <!-- Performance breakdown will be added here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Tooltip -->
+    <div id="tooltip" class="tooltip" style="display: none;"></div>
+
+    <script src="working_analyzer.js"></script>
+</body>
+</html>
