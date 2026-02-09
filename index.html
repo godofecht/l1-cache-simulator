@@ -11,14 +11,7 @@
     <script src="vendor/monaco/min/vs/loader.js"
             onerror="this.onerror=null;this.src='https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js';"></script>
     <!-- Temporarily disable AMD loader for UMD globals -->
-    <script>
-        window.__amd_define = window.define;
-        window.__amd_requirejs = window.requirejs;
-        window.__amd_require = window.require;
-        window.define = undefined;
-        window.requirejs = undefined;
-        window.require = undefined;
-    </script>
+    <script src="vendor/amd-guard.js"></script>
     <!-- D3.js and Flame Graph (local first, CDN fallback) -->
     <script src="vendor/d3.min.js"
             onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';"></script>
@@ -28,13 +21,7 @@
     <script src="vendor/sweetalert2.all.min.js"
             onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js';"></script>
     <!-- Restore AMD loader -->
-    <script>
-        if (window.__amd_define) {
-            window.define = window.__amd_define;
-            window.requirejs = window.__amd_requirejs;
-            window.require = window.__amd_require;
-        }
-    </script>
+    <script src="vendor/amd-restore.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         body {
