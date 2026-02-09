@@ -44,88 +44,165 @@ class WorkingAnalyzer {
             const lineNumber = i + 1;
             
             // Skip empty lines and comments
-            if (!line || line.startsWith('//') || line.startsWith('/*')) continue;
+            if (!line || line.startsWith('//') || line.startsWith('/*') || line.startsWith('*')) continue;
             
-            // Array access: data[i] = value
+            // Array access: data[i] = value (memory write)
             if (line.match(/\w+\s*\[\s*\w+\s*\]\s*=/)) {
                 operations.push({
                     type: 'memory_write',
+                    name: 'Array Write',
                     line: lineNumber,
                     original: line,
-                    description: 'Array write operation',
-                    depth: 0,
-                    category: 'memory',
-                    impact: { estimatedLatency: 100, l1Equivalents: 100, cacheHitRate: 0.8 }
+                    latency: this.operations.memory_write.latency,
+                    l1Equivalents: this.operations.memory_write.latency / 1,
+                    depth: 1,
+                    description: 'Writing to array element'
                 });
             }
             
-            // Array access: value = data[i]
-            if (line.match(/=\s*\w+\s*\[\s*\w+\s*\]/)) {
+            // Array access: value = data[i] (memory read)
+            else if (line.match(/\w+\s*=\s*\w+\s*\[\s*\w+\s*\]/)) {
                 operations.push({
                     type: 'memory_read',
+                    name: 'Array Read',
                     line: lineNumber,
                     original: line,
-                    description: 'Array read operation',
-                    depth: 0,
-                    category: 'memory',
-                    impact: { estimatedLatency: 100, l1Equivalents: 100, cacheHitRate: 0.8 }
+                    latency: this.operations.memory_read.latency,
+                    l1Equivalents: this.operations.memory_read.latency / 1,
+                    depth: 1,
+                    description: 'Reading from array element'
                 });
             }
             
-            // Function calls (excluding for, while, if)
-            if (line.match(/\w+\s*\([^)]*\)/) && !line.match(/for|while|if/)) {
+            // Vector operations: vec.push_back(), vec.size(), etc.
+            else if (line.match(/\w+\.\w+\(/)) {
                 operations.push({
                     type: 'function_call',
+                    name: 'Vector Method',
                     line: lineNumber,
                     original: line,
-                    description: 'Function call',
-                    depth: 0,
-                    category: 'function',
-                    impact: { callOverhead: 17, l1Equivalents: 17 }
+                    latency: this.operations.function_call.latency * 2,
+                    l1Equivalents: (this.operations.function_call.latency * 2) / 1,
+                    depth: 1,
+                    description: 'Vector method call with potential allocation'
                 });
             }
             
-            // For loops
-            if (line.match(/for\s*\([^)]*\)/)) {
+            // For loops: for(int i = 0; i < n; i++)
+            else if (line.match(/for\s*\([^)]+\)/)) {
+                const loopMatch = line.match(/for\s*\([^)]*(\w+)\s*<\s*(\w+)[^)]*\)/);
+                const iterations = this.calculateLoopIterations(line);
+                
                 operations.push({
-                    type: 'loop',
+                    type: 'branch',
+                    name: 'Loop Branch',
                     line: lineNumber,
                     original: line,
-                    description: 'For loop',
-                    depth: 0,
-                    category: 'branch',
-                    impact: { iterations: 1000, branchLatency: 3000, l1Equivalents: 3000 }
+                    latency: this.operations.branch.latency * iterations,
+                    l1Equivalents: (this.operations.branch.latency * iterations) / 1,
+                    depth: 1,
+                    description: `Loop with ${iterations} iterations`
+                });
+                
+                // Add computation inside loop
+                operations.push({
+                    type: 'computation',
+                    name: 'Loop Body',
+                    line: lineNumber,
+                    original: line,
+                    latency: this.operations.computation.latency * iterations,
+                    l1Equivalents: (this.operations.computation.latency * iterations) / 1,
+                    depth: 2,
+                    description: 'Computation inside loop'
                 });
             }
             
             // While loops
-            if (line.match(/while\s*\([^)]*\)/)) {
+            else if (line.match(/while\s*\([^)]+\)/)) {
                 operations.push({
-                    type: 'loop',
+                    type: 'branch',
+                    name: 'While Loop',
                     line: lineNumber,
                     original: line,
-                    description: 'While loop',
-                    depth: 0,
-                    category: 'branch',
-                    impact: { iterations: 1000, branchLatency: 3000, l1Equivalents: 3000 }
+                    latency: this.operations.branch.latency * this.analysisParams.loopIterations,
+                    l1Equivalents: (this.operations.branch.latency * this.analysisParams.loopIterations) / 1,
+                    depth: 1,
+                    description: 'While loop condition check'
                 });
             }
             
-            // If statements
-            if (line.match(/if\s*\([^)]*\)/)) {
+            // Function calls
+            else if (line.match(/\w+\s*\([^)]*\)/)) {
                 operations.push({
-                    type: 'branch',
+                    type: 'function_call',
+                    name: 'Function Call',
                     line: lineNumber,
                     original: line,
-                    description: 'Conditional branch',
-                    depth: 0,
-                    category: 'branch',
-                    impact: { branchLatency: 3, l1Equivalents: 3 }
+                    latency: this.operations.function_call.latency,
+                    l1Equivalents: this.operations.function_call.latency / 1,
+                    depth: 1,
+                    description: 'Function call overhead'
+                });
+            }
+            
+            // Mutex operations
+            else if (line.match(/mutex|lock|pthread_create|thread/)) {
+                operations.push({
+                    type: 'mutex_lock',
+                    name: 'Synchronization',
+                    line: lineNumber,
+                    original: line,
+                    latency: this.operations.mutex_lock.latency,
+                    l1Equivalents: this.operations.mutex_lock.latency / 1,
+                    depth: 1,
+                    description: 'Thread synchronization operation'
+                });
+            }
+            
+            // Variable assignments (potential cache operations)
+            else if (line.match(/\w+\s*=\s*[^;]+;/)) {
+                operations.push({
+                    type: 'cache_hit',
+                    name: 'Assignment',
+                    line: lineNumber,
+                    original: line,
+                    latency: this.operations.cache_hit.latency,
+                    l1Equivalents: this.operations.cache_hit.latency / 1,
+                    depth: 1,
+                    description: 'Variable assignment (cache hit)'
+                });
+            }
+            
+            // Matrix operations (nested loops)
+            else if (line.match(/matrix|Matrix/)) {
+                operations.push({
+                    type: 'memory_read',
+                    name: 'Matrix Access',
+                    line: lineNumber,
+                    original: line,
+                    latency: this.operations.cache_miss.latency * 10, // Matrix operations often cause cache misses
+                    l1Equivalents: (this.operations.cache_miss.latency * 10) / 1,
+                    depth: 1,
+                    description: 'Matrix memory access (potential cache miss)'
+                });
+            }
+            
+            // Template instantiation
+            else if (line.match(/template|<.*>/)) {
+                operations.push({
+                    type: 'function_call',
+                    name: 'Template Instantiation',
+                    line: lineNumber,
+                    original: line,
+                    latency: this.operations.function_call.latency * 5,
+                    l1Equivalents: (this.operations.function_call.latency * 5) / 1,
+                    depth: 1,
+                    description: 'Template compilation overhead'
                 });
             }
             
             // Arithmetic operations
-            if (line.match(/[a-zA-Z_]\w*\s*[\+\-\*\/\%]\s*[a-zA-Z_]\w*/)) {
+            else if (line.match(/[a-zA-Z_]\w*\s*[\+\-\*\/\%]\s*[a-zA-Z_]\w*/)) {
                 operations.push({
                     type: 'computation',
                     line: lineNumber,
@@ -305,25 +382,28 @@ class WorkingAnalyzer {
     }
 
     createD3Timeline(container, events) {
-        console.log('🎨 Creating D3 timeline with', events.length, 'events');
+        console.log('Creating D3 timeline with', events.length, 'events');
         
         // Check if D3 is available
         if (typeof d3 === 'undefined') {
-            console.error('❌ D3.js not loaded!');
+            console.error('D3.js not loaded!');
             container.innerHTML = '<div class="text-red-500 text-center py-8">D3.js library not loaded. Check if CDN is working.</div>';
             return;
         }
         
-        console.log('✅ D3.js available:', d3.version);
+        console.log('D3.js available:', d3.version);
         
-        const margin = {top: 20, right: 20, bottom: 40, left: 100};
+        const margin = {top: 40, right: 20, bottom: 60, left: 100};
         const width = Math.max(800, container.offsetWidth - margin.left - margin.right);
         const height = 400;
         
-        console.log('📏 Canvas dimensions:', width, 'x', height);
+        console.log('Canvas dimensions:', width, 'x', height);
         
         // Clear container and add D3 container
         container.innerHTML = '';
+        
+        // Add controls
+        this.addTimelineControls(container);
         
         const svg = d3.select('#timelineTracks')
             .append('svg')
@@ -332,7 +412,7 @@ class WorkingAnalyzer {
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
         
-        console.log('🎯 SVG created');
+        console.log('SVG created');
         
         // Group events by category
         const categories = ['cpu', 'memory', 'cache', 'function', 'sync', 'branch'];
@@ -341,7 +421,7 @@ class WorkingAnalyzer {
             events: events.filter(e => e.category === cat)
         })).filter(d => d.events.length > 0);
         
-        console.log('📊 Category data:', categoryData.map(d => `${d.category}: ${d.events.length}`));
+        console.log('Category data:', categoryData.map(d => `${d.category}: ${d.events.length}`));
         
         if (categoryData.length === 0) {
             container.innerHTML = '<div class="text-gray-500 text-center py-8">No valid events to display</div>';
@@ -350,7 +430,7 @@ class WorkingAnalyzer {
         
         // Scales
         const maxTime = Math.max(...events.map(d => d.start + d.duration));
-        console.log('⏱️ Max time:', maxTime);
+        console.log('Max time:', maxTime);
         
         const xScale = d3.scaleLinear()
             .domain([0, maxTime])
@@ -515,33 +595,34 @@ class WorkingAnalyzer {
         // Add title
         svg.append('text')
             .attr('x', width / 2)
-            .attr('y', -5)
+            .attr('y', -15)
             .attr('text-anchor', 'middle')
             .attr('fill', '#fff')
             .attr('font-size', '14px')
             .attr('font-weight', 'bold')
             .text('Execution Timeline');
         
+        // Store scales for controls
+        this.timelineScales = { xScale, yScale, originalXScale: xScale.copy() };
+        
         // Add interactive zoom
         const zoom = d3.zoom()
             .scaleExtent([0.5, 10])
             .on('zoom', function(event) {
-                const newXScale = event.transform.rescaleX(xScale);
+                const newXScale = event.transform.rescaleX(analyzer.timelineScales.originalXScale);
+                analyzer.timelineScales.xScale = newXScale;
                 
                 // Update bars
                 svg.selectAll('.event')
                     .attr('x', d => newXScale(d.start))
                     .attr('width', d => Math.max(1, newXScale(d.start + d.duration) - newXScale(d.start)));
                 
-                // Update labels
                 svg.selectAll('.event-label')
                     .attr('x', d => newXScale(d.start) + 5);
                 
-                // Update axis
                 svg.select('.x-axis')
-                    .call(xAxis.scale(newXScale));
+                    .call(d3.axisBottom(analyzer.timelineScales.xScale).tickFormat(d => analyzer.formatLatency(d)));
                 
-                // Update grid
                 svg.selectAll('.grid line')
                     .attr('x1', d => newXScale(d))
                     .attr('x2', d => newXScale(d));
@@ -552,7 +633,7 @@ class WorkingAnalyzer {
         // Add legend
         const legend = svg.append('g')
             .attr('class', 'legend')
-            .attr('transform', `translate(${width - 150}, 10)`);
+            .attr('transform', `translate(${width - 150}, -15)`);
         
         categoryData.forEach((cat, i) => {
             const legendItem = legend.append('g')
@@ -573,14 +654,283 @@ class WorkingAnalyzer {
                 .text(cat.category.toUpperCase());
         });
         
-        console.log('D3 timeline created');
+        console.log('D3 timeline created successfully');
+    }
+    
+    addTimelineControls(container) {
+        const controls = document.createElement('div');
+        controls.className = 'flex justify-between items-center mb-3';
+        controls.innerHTML = `
+            <div class="flex space-x-2">
+                <button id="timeline-zoom-in" class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs">Zoom In</button>
+                <button id="timeline-zoom-out" class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs">Zoom Out</button>
+                <button id="timeline-reset" class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs">Reset</button>
+            </div>
+            <div class="flex space-x-2">
+                <button id="timeline-export" class="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs">Export SVG</button>
+                <button id="timeline-screenshot" class="bg-green-600 hover:bg-green-700 px-2 py-1 rounded text-xs">Screenshot</button>
+            </div>
+        `;
+        
+        container.insertBefore(controls, container.firstChild);
+        
+        // Add event listeners
+        setTimeout(() => {
+            document.getElementById('timeline-zoom-in')?.addEventListener('click', () => {
+                this.zoomTimeline(1.5);
+            });
+            
+            document.getElementById('timeline-zoom-out')?.addEventListener('click', () => {
+                this.zoomTimeline(0.67);
+            });
+            
+            document.getElementById('timeline-reset')?.addEventListener('click', () => {
+                this.resetTimelineZoom();
+            });
+            
+            document.getElementById('timeline-export')?.addEventListener('click', () => {
+                this.exportTimelineSVG();
+            });
+            
+            document.getElementById('timeline-screenshot')?.addEventListener('click', () => {
+                this.takeTimelineScreenshot();
+            });
+        }, 100);
+    }
+    
+    zoomTimeline(factor) {
+        if (!this.timelineScales) return;
+        
+        const svg = d3.select('#timelineTracks svg g');
+        const zoom = d3.zoom()
+            .scaleExtent([0.5, 10])
+            .on('zoom', function(event) {
+                const newXScale = event.transform.rescaleX(analyzer.timelineScales.originalXScale);
+                analyzer.timelineScales.xScale = newXScale;
+                
+                // Update all elements
+                svg.selectAll('.event')
+                    .attr('x', d => newXScale(d.start))
+                    .attr('width', d => Math.max(1, newXScale(d.start + d.duration) - newXScale(d.start)));
+                
+                svg.selectAll('.event-label')
+                    .attr('x', d => newXScale(d.start) + 5);
+                
+                svg.select('.x-axis')
+                    .call(d3.axisBottom(analyzer.timelineScales.xScale).tickFormat(d => analyzer.formatLatency(d)));
+                
+                svg.selectAll('.grid line')
+                    .attr('x1', d => newXScale(d))
+                    .attr('x2', d => newXScale(d));
+            });
+        
+        svg.transition().duration(300).call(zoom.scaleBy, factor);
+    }
+    
+    resetTimelineZoom() {
+        if (!this.timelineScales) return;
+        
+        const svg = d3.select('#timelineTracks svg g');
+        const zoom = d3.zoom()
+            .scaleExtent([0.5, 10])
+            .on('zoom', function(event) {
+                const newXScale = event.transform.rescaleX(analyzer.timelineScales.originalXScale);
+                analyzer.timelineScales.xScale = newXScale;
+                
+                // Update all elements
+                svg.selectAll('.event')
+                    .attr('x', d => newXScale(d.start))
+                    .attr('width', d => Math.max(1, newXScale(d.start + d.duration) - newXScale(d.start)));
+                
+                svg.selectAll('.event-label')
+                    .attr('x', d => newXScale(d.start) + 5);
+                
+                svg.select('.x-axis')
+                    .call(d3.axisBottom(analyzer.timelineScales.xScale).tickFormat(d => analyzer.formatLatency(d)));
+                
+                svg.selectAll('.grid line')
+                    .attr('x1', d => newXScale(d))
+                    .attr('x2', d => newXScale(d));
+            });
+        
+        svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
+    }
+    
+    exportTimelineSVG() {
+        const svg = document.querySelector('#timelineTracks svg');
+        if (!svg) return;
+        
+        const svgData = new XMLSerializer().serializeToString(svg);
+        const blob = new Blob([svgData], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'timeline.svg';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    
+    takeTimelineScreenshot() {
+        const svg = document.querySelector('#timelineTracks svg');
+        if (!svg) return;
+        
+        // Create canvas
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const svgData = new XMLSerializer().serializeToString(svg);
+        
+        // Convert SVG to image
+        const img = new Image();
+        img.onload = function() {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            // Download
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'timeline.png';
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        };
+        
+        img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
     }
 
     createFlameGraph() {
         const container = document.getElementById('flameGraph');
-        if (container) {
-            container.innerHTML = '<div class="text-gray-500 text-center py-8 text-sm">Flame graph visualization would be implemented here</div>';
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        // Check if d3-flame-graph is available
+        if (typeof d3flamegraph === 'undefined') {
+            container.innerHTML = '<div class="text-gray-500 text-center py-8 text-sm">Flame graph library not loaded</div>';
+            return;
         }
+        
+        // Generate flame graph data from timeline data
+        const flameData = this.generateFlameGraphData();
+        
+        if (!flameData || flameData.children.length === 0) {
+            container.innerHTML = '<div class="text-gray-500 text-center py-8 text-sm">No data available for flame graph</div>';
+            return;
+        }
+        
+        // Create flame graph
+        const chart = d3flamegraph()
+            .width(container.offsetWidth)
+            .height(300)
+            .cellHeight(18)
+            .minCellWidth(2)
+            .transitionDuration(250)
+            .sort(false)
+            .inverted(true);
+        
+        // Set up tooltip
+        const tooltip = d3.select('body').append('div')
+            .attr('class', 'flamegraph-tooltip')
+            .style('position', 'absolute')
+            .style('visibility', 'hidden')
+            .style('background', 'rgba(0, 0, 0, 0.8)')
+            .style('color', 'white')
+            .style('padding', '8px')
+            .style('border-radius', '4px')
+            .style('font-size', '11px')
+            .style('font-family', 'Inter, monospace');
+        
+        chart.tooltip((d) => {
+            const percentage = ((d.value / flameData.value) * 100).toFixed(2);
+            return `${d.name}<br/>Time: ${this.formatLatency(d.value)}<br/>Percentage: ${percentage}%`;
+        });
+        
+        // Render the chart
+        d3.select(container)
+            .datum(flameData)
+            .call(chart);
+        
+        // Add zoom controls
+        this.addFlameGraphControls(container, chart);
+        
+        console.log('Flame graph created successfully');
+    }
+    
+    generateFlameGraphData() {
+        if (!this.timelineData || this.timelineData.length === 0) {
+            return null;
+        }
+        
+        // Convert timeline data to flame graph format
+        const root = {
+            name: 'main()',
+            value: 0,
+            children: []
+        };
+        
+        // Group operations by type and create hierarchy
+        const categories = {
+            'memory': { name: 'Memory Operations', value: 0, children: [] },
+            'cpu': { name: 'CPU Operations', value: 0, children: [] },
+            'cache': { name: 'Cache Operations', value: 0, children: [] },
+            'function': { name: 'Function Calls', value: 0, children: [] },
+            'sync': { name: 'Synchronization', value: 0, children: [] },
+            'branch': { name: 'Branch Operations', value: 0, children: [] }
+        };
+        
+        this.timelineData.forEach(event => {
+            const category = categories[event.category];
+            if (category) {
+                category.value += event.duration;
+                category.children.push({
+                    name: `${event.name} (line ${event.line})`,
+                    value: event.duration,
+                    data: event
+                });
+            }
+        });
+        
+        // Add non-empty categories to root
+        Object.values(categories).forEach(category => {
+            if (category.value > 0) {
+                root.children.push(category);
+                root.value += category.value;
+            }
+        });
+        
+        return root.value > 0 ? root : null;
+    }
+    
+    addFlameGraphControls(container, chart) {
+        const controls = document.createElement('div');
+        controls.className = 'flex justify-center space-x-2 mt-3';
+        controls.innerHTML = `
+            <button id="flame-reset" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-xs">Reset Zoom</button>
+            <button id="flame-download" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs">Download SVG</button>
+        `;
+        
+        container.appendChild(controls);
+        
+        // Add event listeners
+        document.getElementById('flame-reset').addEventListener('click', () => {
+            chart.resetZoom();
+        });
+        
+        document.getElementById('flame-download').addEventListener('click', () => {
+            const svg = container.querySelector('svg');
+            if (svg) {
+                const svgData = new XMLSerializer().serializeToString(svg);
+                const blob = new Blob([svgData], { type: 'image/svg+xml' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'flame-graph.svg';
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+        });
     }
 
     showTooltip(event, eventData) {
@@ -902,9 +1252,18 @@ function analyzeCode() {
                 throw new Error('Analysis returned invalid result');
             }
             
-            displayResults(analysisResult);
-            analyzer.updateStatistics(analysisResult.summary);
-            analyzer.createPerformanceBreakdown(analysisResult.operations);
+            // Store results for export and comparison
+            analyzer.lastAnalysisResult = analysisResult;
+            
+            if (compareMode && compareResults) {
+                // Show comparison view
+                displayComparisonResults(compareResults, analysisResult);
+            } else {
+                // Show normal results
+                displayResults(analysisResult);
+                analyzer.updateStatistics(analysisResult.summary);
+                analyzer.createPerformanceBreakdown(analysisResult.operations);
+            }
             
             console.log('Creating timeline...');
             analyzer.createTimelineVisualization();
@@ -913,7 +1272,7 @@ function analyzeCode() {
             analyzer.createFlameGraph();
             
             document.getElementById('timelineVisualization').classList.remove('hidden');
-            analysisStatus.textContent = 'Analysis complete';
+            analysisStatus.textContent = compareMode ? 'Comparison complete' : 'Analysis complete';
             analysisStatus.classList.remove('analyzing');
             
             console.log('Analysis complete');
@@ -925,6 +1284,99 @@ function analyzeCode() {
             analysisStatus.classList.remove('analyzing');
         }
     }, 500);
+}
+
+function displayComparisonResults(result1, result2) {
+    const container = document.getElementById('resultsContainer');
+    
+    const comparisonHTML = `
+        <div class="space-y-4">
+            <div class="bg-gray-900 rounded p-3">
+                <h3 class="text-sm font-medium text-gray-300 mb-2">Performance Comparison</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <h4 class="text-xs font-medium text-blue-400 mb-1">Original Code</h4>
+                        <div class="space-y-1">
+                            <div class="text-xs">Operations: ${result1.operations.length}</div>
+                            <div class="text-xs">Time: ${result1.summary.totalLatency.toFixed(2)}ns</div>
+                            <div class="text-xs">Hotspots: ${result1.summary.hotspots}</div>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-medium text-green-400 mb-1">Modified Code</h4>
+                        <div class="space-y-1">
+                            <div class="text-xs">Operations: ${result2.operations.length}</div>
+                            <div class="text-xs">Time: ${result2.summary.totalLatency.toFixed(2)}ns</div>
+                            <div class="text-xs">Hotspots: ${result2.summary.hotspots}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-gray-900 rounded p-3">
+                <h3 class="text-sm font-medium text-gray-300 mb-2">Performance Change</h3>
+                <div class="space-y-2">
+                    ${generateComparisonMetrics(result1, result2)}
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <h4 class="text-xs font-medium text-blue-400 mb-1">Original Operations</h4>
+                    <div class="space-y-1 max-h-40 overflow-auto">
+                        ${result1.operations.slice(0, 5).map(op => `
+                            <div class="text-xs text-gray-400">
+                                ${op.name}: ${op.formattedLatency}
+                            </div>
+                        `).join('')}
+                        ${result1.operations.length > 5 ? `<div class="text-xs text-gray-500">... and ${result1.operations.length - 5} more</div>` : ''}
+                    </div>
+                </div>
+                <div>
+                    <h4 class="text-xs font-medium text-green-400 mb-1">Modified Operations</h4>
+                    <div class="space-y-1 max-h-40 overflow-auto">
+                        ${result2.operations.slice(0, 5).map(op => `
+                            <div class="text-xs text-gray-400">
+                                ${op.name}: ${op.formattedLatency}
+                            </div>
+                        `).join('')}
+                        ${result2.operations.length > 5 ? `<div class="text-xs text-gray-500">... and ${result2.operations.length - 5} more</div>` : ''}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = comparisonHTML;
+}
+
+function generateComparisonMetrics(result1, result2) {
+    const timeDiff = result2.summary.totalLatency - result1.summary.totalLatency;
+    const timePercent = (timeDiff / result1.summary.totalLatency * 100).toFixed(1);
+    const opsDiff = result2.operations.length - result1.operations.length;
+    const hotspotsDiff = result2.summary.hotspots - result1.summary.hotspots;
+    
+    const timeClass = timeDiff < 0 ? 'text-green-400' : 'text-red-400';
+    const timeSymbol = timeDiff < 0 ? '↓' : '↑';
+    const opsClass = opsDiff < 0 ? 'text-green-400' : 'text-red-400';
+    const opsSymbol = opsDiff < 0 ? '↓' : '↑';
+    
+    return `
+        <div class="flex justify-between items-center">
+            <span class="text-xs text-gray-400">Total Time:</span>
+            <span class="text-xs ${timeClass}">${timeSymbol} ${Math.abs(timePercent)}%</span>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-xs text-gray-400">Operations:</span>
+            <span class="text-xs ${opsClass}">${opsSymbol} ${Math.abs(opsDiff)}</span>
+        </div>
+        <div class="flex justify-between items-center">
+            <span class="text-xs text-gray-400">Hotspots:</span>
+            <span class="text-xs ${hotspotsDiff < 0 ? 'text-green-400' : 'text-red-400'}">
+                ${hotspotsDiff < 0 ? '↓' : '↑'} ${Math.abs(hotspotsDiff)}
+            </span>
+        </div>
+    `;
 }
 
 function displayResults(analysisResult) {
@@ -1023,6 +1475,180 @@ function updateLineNumbers() {
 
 // Additional event listeners
 document.getElementById('templateSelect').addEventListener('change', loadTemplate);
+document.getElementById('compareMode').addEventListener('click', toggleCompareMode);
+document.getElementById('exportJSON').addEventListener('click', exportResultsJSON);
+document.getElementById('shareResults').addEventListener('click', shareResults);
+document.getElementById('printReport').addEventListener('click', printReport);
+
+// Compare mode functionality
+let compareMode = false;
+let compareResults = null;
+
+function toggleCompareMode() {
+    compareMode = !compareMode;
+    const compareBtn = document.getElementById('compareMode');
+    const analyzeBtn = document.getElementById('analyzeCode');
+    
+    if (compareMode) {
+        compareBtn.textContent = 'Exit Compare';
+        compareBtn.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+        compareBtn.classList.add('bg-red-600', 'hover:bg-red-700');
+        analyzeBtn.textContent = 'Compare Results';
+        
+        // Store current results if they exist
+        if (analyzer && analyzer.lastAnalysisResult) {
+            compareResults = analyzer.lastAnalysisResult;
+        }
+    } else {
+        compareBtn.textContent = 'Compare';
+        compareBtn.classList.remove('bg-red-600', 'hover:bg-red-700');
+        compareBtn.classList.add('bg-purple-600', 'hover:bg-purple-700');
+        analyzeBtn.textContent = 'Run';
+        compareResults = null;
+    }
+}
+
+function exportResultsJSON() {
+    if (!analyzer || !analyzer.lastAnalysisResult) {
+        alert('No analysis results to export');
+        return;
+    }
+    
+    const exportData = {
+        timestamp: new Date().toISOString(),
+        code: monacoEditor ? monacoEditor.getValue() : document.getElementById('codeInput').value,
+        parameters: analyzer.analysisParams,
+        results: analyzer.lastAnalysisResult,
+        timelineData: analyzer.timelineData
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cpp-analysis-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function shareResults() {
+    if (!analyzer || !analyzer.lastAnalysisResult) {
+        alert('No analysis results to share');
+        return;
+    }
+    
+    // Create shareable link with encoded data
+    const shareData = {
+        code: monacoEditor ? monacoEditor.getValue() : document.getElementById('codeInput').value,
+        parameters: analyzer.analysisParams
+    };
+    
+    const encoded = btoa(JSON.stringify(shareData));
+    const shareUrl = `${window.location.origin}${window.location.pathname}?data=${encoded}`;
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(shareUrl).then(() => {
+        alert('Share link copied to clipboard!');
+    }).catch(() => {
+        prompt('Share link:', shareUrl);
+    });
+}
+
+function printReport() {
+    if (!analyzer || !analyzer.lastAnalysisResult) {
+        alert('No analysis results to print');
+        return;
+    }
+    
+    const results = analyzer.lastAnalysisResult;
+    const printWindow = window.open('', '_blank');
+    
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>C++ Performance Analysis Report</title>
+            <style>
+                body { font-family: 'Inter', monospace; margin: 20px; }
+                .header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+                .section { margin-bottom: 20px; }
+                .metric { display: inline-block; margin: 10px; padding: 10px; border: 1px solid #ddd; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>C++ Performance Analysis Report</h1>
+                <p>Generated: ${new Date().toLocaleString()}</p>
+            </div>
+            
+            <div class="section">
+                <h2>Summary</h2>
+                <div class="metric">
+                    <strong>Total Operations:</strong> ${results.operations.length}
+                </div>
+                <div class="metric">
+                    <strong>Total Time:</strong> ${formatLatency(results.summary.totalLatency)}
+                </div>
+                <div class="metric">
+                    <strong>Max Depth:</strong> ${results.summary.maxDepth}
+                </div>
+                <div class="metric">
+                    <strong>Hotspots:</strong> ${results.summary.hotspots}
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>Analysis Parameters</h2>
+                <table>
+                    <tr><th>Parameter</th><th>Value</th></tr>
+                    <tr><td>Array Size</td><td>${analyzer.analysisParams.arraySize}</td></tr>
+                    <tr><td>Loop Iterations</td><td>${analyzer.analysisParams.loopIterations}</td></tr>
+                    <tr><td>Thread Count</td><td>${analyzer.analysisParams.threadCount}</td></tr>
+                    <tr><td>Cache Line Size</td><td>${analyzer.analysisParams.cacheLineSize}</td></tr>
+                </table>
+            </div>
+            
+            <div class="section">
+                <h2>Operations Breakdown</h2>
+                <table>
+                    <tr><th>Type</th><th>Name</th><th>Line</th><th>Latency</th><th>L1 Equivalents</th><th>Description</th></tr>
+                    ${results.operations.map(op => `
+                        <tr>
+                            <td>${op.type}</td>
+                            <td>${op.name}</td>
+                            <td>${op.line}</td>
+                            <td>${op.formattedLatency}</td>
+                            <td>${Math.round(op.l1Equivalents)}</td>
+                            <td>${op.description}</td>
+                        </tr>
+                    `).join('')}
+                </table>
+            </div>
+            
+            <div class="section">
+                <h2>Code</h2>
+                <pre style="background: #f5f5f5; padding: 10px; overflow-x: auto;">${monacoEditor ? monacoEditor.getValue() : document.getElementById('codeInput').value}</pre>
+            </div>
+        </body>
+        </html>
+    `);
+    
+    printWindow.document.close();
+    printWindow.print();
+}
+
+function formatLatency(nanoseconds) {
+    if (nanoseconds < 1000) {
+        return `${nanoseconds.toFixed(1)}ns`;
+    } else if (nanoseconds < 1000000) {
+        return `${(nanoseconds / 1000).toFixed(2)}μs`;
+    } else {
+        return `${(nanoseconds / 1000000).toFixed(2)}ms`;
+    }
+}
 
 // Initialize (Monaco handles line numbers automatically)
 console.log('Analyzer script loaded');
