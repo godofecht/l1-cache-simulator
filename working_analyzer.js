@@ -1322,7 +1322,14 @@ function analyzeCode() {
     console.log('Parameters:', analysisParams);
     
     if (!code.trim()) {
-        alert('Please enter C++ code to analyze');
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Code',
+            text: 'Please enter C++ code to analyze',
+            confirmButtonColor: '#3b82f6',
+            background: '#1f2937',
+            color: '#fff'
+        });
         return;
     }
     
@@ -1365,9 +1372,30 @@ function analyzeCode() {
             
             console.log('Analysis complete');
             
+            // Show success notification
+            Swal.fire({
+                icon: 'success',
+                title: compareMode ? 'Comparison Complete!' : 'Analysis Complete!',
+                text: `Found ${analysisResult.operations.length} operations`,
+                timer: 2000,
+                showConfirmButton: false,
+                position: 'top-end',
+                toast: true,
+                background: '#1f2937',
+                color: '#fff'
+            });
+            
         } catch (error) {
             console.error('Analysis error:', error);
-            alert('Error analyzing code: ' + error.message + '\nCheck console for details');
+            Swal.fire({
+                icon: 'error',
+                title: 'Analysis Failed',
+                text: error.message,
+                footer: 'Check console for details',
+                confirmButtonColor: '#ef4444',
+                background: '#1f2937',
+                color: '#fff'
+            });
             analysisStatus.textContent = 'Analysis failed';
             analysisStatus.classList.remove('analyzing');
         }
@@ -1598,7 +1626,14 @@ function toggleCompareMode() {
 
 function exportResultsJSON() {
     if (!analyzer || !analyzer.lastAnalysisResult) {
-        alert('No analysis results to export');
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Results',
+            text: 'No analysis results to export',
+            confirmButtonColor: '#3b82f6',
+            background: '#1f2937',
+            color: '#fff'
+        });
         return;
     }
     
@@ -1617,11 +1652,30 @@ function exportResultsJSON() {
     a.download = `cpp-analysis-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    
+    Swal.fire({
+        icon: 'success',
+        title: 'Exported!',
+        text: 'Analysis results exported as JSON',
+        timer: 2000,
+        showConfirmButton: false,
+        position: 'top-end',
+        toast: true,
+        background: '#1f2937',
+        color: '#fff'
+    });
 }
 
 function shareResults() {
     if (!analyzer || !analyzer.lastAnalysisResult) {
-        alert('No analysis results to share');
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Results',
+            text: 'No analysis results to share',
+            confirmButtonColor: '#3b82f6',
+            background: '#1f2937',
+            color: '#fff'
+        });
         return;
     }
     
@@ -1636,96 +1690,163 @@ function shareResults() {
     
     // Copy to clipboard
     navigator.clipboard.writeText(shareUrl).then(() => {
-        alert('Share link copied to clipboard!');
+        Swal.fire({
+            icon: 'success',
+            title: 'Link Copied!',
+            text: 'Share link copied to clipboard',
+            timer: 2000,
+            showConfirmButton: false,
+            position: 'top-end',
+            toast: true,
+            background: '#1f2937',
+            color: '#fff'
+        });
     }).catch(() => {
-        prompt('Share link:', shareUrl);
+        Swal.fire({
+            icon: 'info',
+            title: 'Share Link',
+            input: 'text',
+            inputValue: shareUrl,
+            showCloseButton: true,
+            showCancelButton: true,
+            confirmButtonColor: '#3b82f6',
+            background: '#1f2937',
+            color: '#fff',
+            confirmButtonText: 'Copy',
+            preConfirm: () => {
+                navigator.clipboard.writeText(shareUrl);
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Copied!',
+                    timer: 1000,
+                    showConfirmButton: false,
+                    position: 'top-end',
+                    toast: true,
+                    background: '#1f2937',
+                    color: '#fff'
+                });
+            }
+        });
     });
 }
 
 function printReport() {
     if (!analyzer || !analyzer.lastAnalysisResult) {
-        alert('No analysis results to print');
+        Swal.fire({
+            icon: 'warning',
+            title: 'No Results',
+            text: 'No analysis results to print',
+            confirmButtonColor: '#3b82f6',
+            background: '#1f2937',
+            color: '#fff'
+        });
         return;
     }
     
-    const results = analyzer.lastAnalysisResult;
-    const printWindow = window.open('', '_blank');
-    
-    printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>C++ Performance Analysis Report</title>
-            <style>
-                body { font-family: 'Inter', monospace; margin: 20px; }
-                .header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
-                .section { margin-bottom: 20px; }
-                .metric { display: inline-block; margin: 10px; padding: 10px; border: 1px solid #ddd; }
-                table { width: 100%; border-collapse: collapse; }
-                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                th { background-color: #f2f2f2; }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>C++ Performance Analysis Report</h1>
-                <p>Generated: ${new Date().toLocaleString()}</p>
-            </div>
+    Swal.fire({
+        title: 'Generate Report',
+        text: 'Create a printable performance report?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#3b82f6',
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: 'Generate',
+        background: '#1f2937',
+        color: '#fff'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const results = analyzer.lastAnalysisResult;
+            const printWindow = window.open('', '_blank');
             
-            <div class="section">
-                <h2>Summary</h2>
-                <div class="metric">
-                    <strong>Total Operations:</strong> ${results.operations.length}
-                </div>
-                <div class="metric">
-                    <strong>Total Time:</strong> ${formatLatency(results.summary.totalLatency)}
-                </div>
-                <div class="metric">
-                    <strong>Max Depth:</strong> ${results.summary.maxDepth}
-                </div>
-                <div class="metric">
-                    <strong>Hotspots:</strong> ${results.summary.hotspots}
-                </div>
-            </div>
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>C++ Performance Analysis Report</title>
+                    <style>
+                        body { font-family: 'Inter', monospace; margin: 20px; }
+                        .header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+                        .section { margin-bottom: 20px; }
+                        .metric { display: inline-block; margin: 10px; padding: 10px; border: 1px solid #ddd; }
+                        table { width: 100%; border-collapse: collapse; }
+                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                        th { background-color: #f2f2f2; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h1>C++ Performance Analysis Report</h1>
+                        <p>Generated: ${new Date().toLocaleString()}</p>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>Summary</h2>
+                        <div class="metric">
+                            <strong>Total Operations:</strong> ${results.operations.length}
+                        </div>
+                        <div class="metric">
+                            <strong>Total Time:</strong> ${formatLatency(results.summary.totalLatency)}
+                        </div>
+                        <div class="metric">
+                            <strong>Max Depth:</strong> ${results.summary.maxDepth}
+                        </div>
+                        <div class="metric">
+                            <strong>Hotspots:</strong> ${results.summary.hotspots}
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>Analysis Parameters</h2>
+                        <table>
+                            <tr><th>Parameter</th><th>Value</th></tr>
+                            <tr><td>Array Size</td><td>${analyzer.analysisParams.arraySize}</td></tr>
+                            <tr><td>Loop Iterations</td><td>${analyzer.analysisParams.loopIterations}</td></tr>
+                            <tr><td>Thread Count</td><td>${analyzer.analysisParams.threadCount}</td></tr>
+                            <tr><td>Cache Line Size</td><td>${analyzer.analysisParams.cacheLineSize}</td></tr>
+                        </table>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>Operations Breakdown</h2>
+                        <table>
+                            <tr><th>Type</th><th>Name</th><th>Line</th><th>Latency</th><th>L1 Equivalents</th><th>Description</th></tr>
+                            ${results.operations.map(op => `
+                                <tr>
+                                    <td>${op.type}</td>
+                                    <td>${op.name}</td>
+                                    <td>${op.line}</td>
+                                    <td>${op.formattedLatency}</td>
+                                    <td>${Math.round(op.l1Equivalents)}</td>
+                                    <td>${op.description}</td>
+                                </tr>
+                            `).join('')}
+                        </table>
+                    </div>
+                    
+                    <div class="section">
+                        <h2>Code</h2>
+                        <pre style="background: #f5f5f5; padding: 10px; overflow-x: auto;">${monacoEditor ? monacoEditor.getValue() : document.getElementById('codeInput').value}</pre>
+                    </div>
+                </body>
+                </html>
+            `);
             
-            <div class="section">
-                <h2>Analysis Parameters</h2>
-                <table>
-                    <tr><th>Parameter</th><th>Value</th></tr>
-                    <tr><td>Array Size</td><td>${analyzer.analysisParams.arraySize}</td></tr>
-                    <tr><td>Loop Iterations</td><td>${analyzer.analysisParams.loopIterations}</td></tr>
-                    <tr><td>Thread Count</td><td>${analyzer.analysisParams.threadCount}</td></tr>
-                    <tr><td>Cache Line Size</td><td>${analyzer.analysisParams.cacheLineSize}</td></tr>
-                </table>
-            </div>
+            printWindow.document.close();
+            printWindow.print();
             
-            <div class="section">
-                <h2>Operations Breakdown</h2>
-                <table>
-                    <tr><th>Type</th><th>Name</th><th>Line</th><th>Latency</th><th>L1 Equivalents</th><th>Description</th></tr>
-                    ${results.operations.map(op => `
-                        <tr>
-                            <td>${op.type}</td>
-                            <td>${op.name}</td>
-                            <td>${op.line}</td>
-                            <td>${op.formattedLatency}</td>
-                            <td>${Math.round(op.l1Equivalents)}</td>
-                            <td>${op.description}</td>
-                        </tr>
-                    `).join('')}
-                </table>
-            </div>
-            
-            <div class="section">
-                <h2>Code</h2>
-                <pre style="background: #f5f5f5; padding: 10px; overflow-x: auto;">${monacoEditor ? monacoEditor.getValue() : document.getElementById('codeInput').value}</pre>
-            </div>
-        </body>
-        </html>
-    `);
-    
-    printWindow.document.close();
-    printWindow.print();
+            Swal.fire({
+                icon: 'success',
+                title: 'Report Generated!',
+                text: 'Print dialog opened',
+                timer: 2000,
+                showConfirmButton: false,
+                position: 'top-end',
+                toast: true,
+                background: '#1f2937',
+                color: '#fff'
+            });
+        }
+    });
 }
 
 function formatLatency(nanoseconds) {
@@ -1740,3 +1861,20 @@ function formatLatency(nanoseconds) {
 
 // Initialize (Monaco handles line numbers automatically)
 console.log('Analyzer script loaded');
+
+// Show welcome toast
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        Swal.fire({
+            icon: 'info',
+            title: 'Welcome to C++ Performance Analyzer!',
+            text: 'Enter your C++ code and click Run to analyze performance',
+            timer: 3000,
+            showConfirmButton: false,
+            position: 'top-end',
+            toast: true,
+            background: '#1f2937',
+            color: '#fff'
+        });
+    }, 1000);
+});
