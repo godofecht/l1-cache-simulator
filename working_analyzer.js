@@ -250,6 +250,24 @@ class WorkingAnalyzer {
         console.log('Parsed operations:', operations.length);
         return operations;
     }
+    
+    calculateLoopIterations(loopLine) {
+        // Try to extract loop bounds from the line
+        const match = loopLine.match(/for\s*\([^;]*;\s*[^<]*<\s*(\d+)/);
+        if (match) {
+            return parseInt(match[1]);
+        }
+        
+        // Try to match variable bounds like i < n
+        const varMatch = loopLine.match(/for\s*\([^;]*;\s*\w+\s*<\s*(\w+)/);
+        if (varMatch) {
+            // Default to analysis parameters for variable bounds
+            return this.analysisParams.loopIterations || 1000;
+        }
+        
+        // Default to analysis parameters
+        return this.analysisParams.loopIterations || 1000;
+    }
 
     generateTimelineData(operations) {
         const timeline = {
