@@ -22,15 +22,19 @@ class WorkingAnalyzer {
         
         try {
             const operations = this.parseCode(code);
-            console.log('Operations parsed:', operations.length);
+            console.log('Parsed operations:', operations.length);
+            console.log('First operation sample:', operations[0]);
             
             this.timelineData = this.generateTimelineData(operations);
+            console.log('Timeline data generated:', Object.keys(this.timelineData));
             
             const result = this.generateAnalysisReport(operations);
-            console.log('Analysis completed');
+            console.log('Analysis completed, result keys:', Object.keys(result));
+            console.log('Operations in result:', result.operations ? result.operations.length : 'undefined');
             return result;
         } catch (error) {
             console.error('Analysis error:', error);
+            console.error('Error stack:', error.stack);
             throw error;
         }
     }
@@ -56,6 +60,7 @@ class WorkingAnalyzer {
                     latency: this.operations.memory_write.latency,
                     l1Equivalents: this.operations.memory_write.latency / 1,
                     depth: 1,
+                    category: 'memory',
                     description: 'Writing to array element'
                 });
             }
@@ -70,6 +75,7 @@ class WorkingAnalyzer {
                     latency: this.operations.memory_read.latency,
                     l1Equivalents: this.operations.memory_read.latency / 1,
                     depth: 1,
+                    category: 'memory',
                     description: 'Reading from array element'
                 });
             }
@@ -84,6 +90,7 @@ class WorkingAnalyzer {
                     latency: this.operations.function_call.latency * 2,
                     l1Equivalents: (this.operations.function_call.latency * 2) / 1,
                     depth: 1,
+                    category: 'function',
                     description: 'Vector method call with potential allocation'
                 });
             }
@@ -101,6 +108,7 @@ class WorkingAnalyzer {
                     latency: this.operations.branch.latency * iterations,
                     l1Equivalents: (this.operations.branch.latency * iterations) / 1,
                     depth: 1,
+                    category: 'branch',
                     description: `Loop with ${iterations} iterations`
                 });
                 
@@ -113,6 +121,7 @@ class WorkingAnalyzer {
                     latency: this.operations.computation.latency * iterations,
                     l1Equivalents: (this.operations.computation.latency * iterations) / 1,
                     depth: 2,
+                    category: 'cpu',
                     description: 'Computation inside loop'
                 });
             }
@@ -127,6 +136,7 @@ class WorkingAnalyzer {
                     latency: this.operations.branch.latency * this.analysisParams.loopIterations,
                     l1Equivalents: (this.operations.branch.latency * this.analysisParams.loopIterations) / 1,
                     depth: 1,
+                    category: 'branch',
                     description: 'While loop condition check'
                 });
             }
@@ -141,6 +151,7 @@ class WorkingAnalyzer {
                     latency: this.operations.function_call.latency,
                     l1Equivalents: this.operations.function_call.latency / 1,
                     depth: 1,
+                    category: 'function',
                     description: 'Function call overhead'
                 });
             }
@@ -155,6 +166,7 @@ class WorkingAnalyzer {
                     latency: this.operations.mutex_lock.latency,
                     l1Equivalents: this.operations.mutex_lock.latency / 1,
                     depth: 1,
+                    category: 'sync',
                     description: 'Thread synchronization operation'
                 });
             }
@@ -169,6 +181,7 @@ class WorkingAnalyzer {
                     latency: this.operations.cache_hit.latency,
                     l1Equivalents: this.operations.cache_hit.latency / 1,
                     depth: 1,
+                    category: 'cache',
                     description: 'Variable assignment (cache hit)'
                 });
             }
@@ -183,6 +196,7 @@ class WorkingAnalyzer {
                     latency: this.operations.cache_miss.latency * 10, // Matrix operations often cause cache misses
                     l1Equivalents: (this.operations.cache_miss.latency * 10) / 1,
                     depth: 1,
+                    category: 'memory',
                     description: 'Matrix memory access (potential cache miss)'
                 });
             }
@@ -197,6 +211,7 @@ class WorkingAnalyzer {
                     latency: this.operations.function_call.latency * 5,
                     l1Equivalents: (this.operations.function_call.latency * 5) / 1,
                     depth: 1,
+                    category: 'function',
                     description: 'Template compilation overhead'
                 });
             }
@@ -205,29 +220,34 @@ class WorkingAnalyzer {
             else if (line.match(/[a-zA-Z_]\w*\s*[\+\-\*\/\%]\s*[a-zA-Z_]\w*/)) {
                 operations.push({
                     type: 'computation',
+                    name: 'Arithmetic',
                     line: lineNumber,
                     original: line,
-                    description: 'Arithmetic computation',
-                    depth: 0,
+                    latency: this.operations.computation.latency,
+                    l1Equivalents: this.operations.computation.latency / 1,
+                    depth: 1,
                     category: 'cpu',
-                    impact: { operations: 1, computationLatency: 0.5, l1Equivalents: 0.5 }
-                });
-            }
-            
-            // Synchronization functions
-            if (line.match(/mutex|lock|atomic|thread/)) {
-                operations.push({
-                    type: 'synchronization',
-                    line: lineNumber,
-                    original: line,
-                    description: 'Thread synchronization',
-                    depth: 0,
-                    category: 'sync',
-                    impact: { syncLatency: 17, l1Equivalents: 17, contentionFactor: 1 }
+                    description: 'Arithmetic computation'
                 });
             }
         }
         
+        // If no operations were found, add a default operation
+        if (operations.length === 0) {
+            operations.push({
+                type: 'computation',
+                name: 'Code Execution',
+                line: 1,
+                original: code.substring(0, 50) + (code.length > 50 ? '...' : ''),
+                latency: this.operations.computation.latency * 100,
+                l1Equivalents: (this.operations.computation.latency * 100) / 1,
+                depth: 1,
+                category: 'cpu',
+                description: 'General code execution'
+            });
+        }
+        
+        console.log('Parsed operations:', operations.length);
         return operations;
     }
 
