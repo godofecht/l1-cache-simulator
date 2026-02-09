@@ -1242,7 +1242,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, initializing analyzer and Monaco...');
     
     // Initialize Monaco Editor first
-    require.config({ paths: { 'vs': 'https://unpkg.com/monaco-editor@0.44.0/min/vs' }});
+    require.config({ paths: { 'vs': 'vendor/monaco/min/vs' }});
     require(['vs/editor/editor.main'], function() {
         console.log('Monaco Editor loaded');
         

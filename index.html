@@ -7,8 +7,9 @@
     <!-- Tailwind (local first, CDN fallback) -->
     <script src="vendor/tailwindcss.js"
             onerror="this.onerror=null;this.src='https://cdn.tailwindcss.com';"></script>
-    <!-- Monaco Editor -->
-    <script src="https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js"></script>
+    <!-- Monaco Editor (local first, CDN fallback) -->
+    <script src="vendor/monaco/min/vs/loader.js"
+            onerror="this.onerror=null;this.src='https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js';"></script>
     <!-- Temporarily disable AMD loader for UMD globals -->
     <script>
         window.__amd_define = window.define;
