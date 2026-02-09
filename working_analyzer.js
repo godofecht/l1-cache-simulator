@@ -245,42 +245,57 @@ class WorkingAnalyzer {
         
         operations.forEach(op => {
             let latency = 0;
-            let category = op.category;
+            let category = op.category || this.getCategoryFromType(op.type);
             
-            switch (op.type) {
-                case 'memory_access':
-                case 'memory_read':
-                case 'memory_write':
-                    latency = op.impact.estimatedLatency;
-                    break;
-                case 'loop':
-                    latency = op.impact.branchLatency;
-                    break;
-                case 'function_call':
-                    latency = op.impact.callOverhead;
-                    break;
-                case 'computation':
-                    latency = op.impact.computationLatency;
-                    break;
-                case 'branch':
-                    latency = op.impact.branchLatency;
-                    break;
-                case 'synchronization':
-                    latency = op.impact.syncLatency;
-                    break;
+            // Handle new format operations
+            if (op.latency !== undefined) {
+                latency = op.latency;
+            } 
+            // Handle old format operations (backward compatibility)
+            else if (op.impact) {
+                switch (op.type) {
+                    case 'memory_access':
+                    case 'memory_read':
+                    case 'memory_write':
+                        latency = op.impact.estimatedLatency;
+                        break;
+                    case 'loop':
+                        latency = op.impact.branchLatency;
+                        break;
+                    case 'function_call':
+                        latency = op.impact.callOverhead;
+                        break;
+                    case 'computation':
+                        latency = op.impact.computationLatency;
+                        break;
+                    case 'branch':
+                        latency = op.impact.branchLatency;
+                        break;
+                    case 'synchronization':
+                        latency = op.impact.syncLatency;
+                        break;
+                    default:
+                        latency = 0;
+                }
+            } else {
+                // Fallback
+                latency = op.latency || 0;
             }
             
             const event = {
-                name: op.description,
+                name: op.name || op.type,
                 start: currentTime,
                 duration: latency,
                 category: category,
                 line: op.line,
                 original: op.original,
-                color: this.operations[op.type]?.color || '#666'
+                description: op.description || `${op.type} operation`
             };
             
-            timeline[category].push(event);
+            if (timeline[category]) {
+                timeline[category].push(event);
+            }
+            
             currentTime += latency;
         });
         
@@ -297,60 +312,95 @@ class WorkingAnalyzer {
             let latency = 0;
             let l1Equivalents = 0;
             
-            switch (op.type) {
-                case 'memory_access':
-                case 'memory_read':
-                case 'memory_write':
-                    latency = op.impact.estimatedLatency;
-                    l1Equivalents = op.impact.l1Equivalents;
-                    memoryAccesses++;
-                    break;
-                case 'loop':
-                    latency = op.impact.branchLatency;
-                    l1Equivalents = op.impact.l1Equivalents;
-                    break;
-                case 'function_call':
-                    latency = op.impact.callOverhead;
-                    l1Equivalents = op.impact.l1Equivalents;
-                    break;
-                case 'computation':
-                    latency = op.impact.computationLatency;
-                    l1Equivalents = op.impact.l1Equivalents;
-                    break;
-                case 'branch':
-                    latency = op.impact.branchLatency;
-                    l1Equivalents = op.impact.l1Equivalents;
-                    break;
-                case 'synchronization':
-                    latency = op.impact.syncLatency;
-                    l1Equivalents = op.impact.l1Equivalents;
-                    break;
+            // Handle new format operations
+            if (op.latency !== undefined) {
+                latency = op.latency;
+                l1Equivalents = op.l1Equivalents || 0;
+            } 
+            // Handle old format operations (backward compatibility)
+            else if (op.impact) {
+                switch (op.type) {
+                    case 'memory_access':
+                    case 'memory_read':
+                    case 'memory_write':
+                        latency = op.impact.estimatedLatency;
+                        l1Equivalents = op.impact.l1Equivalents;
+                        memoryAccesses++;
+                        break;
+                    case 'loop':
+                        latency = op.impact.branchLatency;
+                        l1Equivalents = op.impact.l1Equivalents;
+                        break;
+                    case 'function_call':
+                        latency = op.impact.callOverhead;
+                        l1Equivalents = op.impact.l1Equivalents;
+                        break;
+                    case 'computation':
+                        latency = op.impact.computationLatency;
+                        l1Equivalents = op.impact.l1Equivalents;
+                        break;
+                    case 'branch':
+                        latency = op.impact.branchLatency;
+                        l1Equivalents = op.impact.l1Equivalents;
+                        break;
+                    case 'synchronization':
+                        latency = op.impact.syncLatency;
+                        l1Equivalents = op.impact.l1Equivalents;
+                        break;
+                    default:
+                        latency = 0;
+                        l1Equivalents = 0;
+                }
+            } else {
+                // Fallback for any other format
+                latency = op.latency || 0;
+                l1Equivalents = op.l1Equivalents || 0;
             }
             
             totalLatency += latency;
             totalL1Equivalents += l1Equivalents;
-            maxDepth = Math.max(maxDepth, op.depth);
+            maxDepth = Math.max(maxDepth, op.depth || 1);
             
             return {
                 ...op,
                 latency,
                 l1Equivalents,
-                formattedLatency: this.formatLatency(latency)
+                formattedLatency: this.formatLatency(latency),
+                category: op.category || this.getCategoryFromType(op.type)
             };
         });
+        
+        // Calculate hotspots (operations with high latency)
+        const avgLatency = totalLatency / detailedOps.length;
+        const hotspots = detailedOps.filter(op => op.latency > avgLatency * 2).length;
         
         return {
             operations: detailedOps,
             summary: {
-                totalOperations: operations.length,
                 totalLatency,
-                totalL1Equivalents: Math.round(totalL1Equivalents),
-                cacheHitRate: 80, // Default for simple analyzer
+                totalL1Equivalents,
                 memoryAccesses,
-                formattedLatency: this.formatLatency(totalLatency),
-                maxDepth
+                maxDepth,
+                hotspots,
+                averageLatency: avgLatency,
+                operationCount: detailedOps.length
             }
         };
+    }
+    
+    getCategoryFromType(type) {
+        const categoryMap = {
+            'memory_read': 'memory',
+            'memory_write': 'memory',
+            'cache_hit': 'cache',
+            'cache_miss': 'cache',
+            'computation': 'cpu',
+            'function_call': 'function',
+            'branch': 'branch',
+            'mutex_lock': 'sync',
+            'synchronization': 'sync'
+        };
+        return categoryMap[type] || 'cpu';
     }
 
     formatLatency(ns) {
