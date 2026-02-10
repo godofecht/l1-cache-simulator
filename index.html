@@ -7,21 +7,22 @@
     <!-- Tailwind (local first, CDN fallback) -->
     <script src="vendor/tailwindcss.js"
             onerror="this.onerror=null;this.src='https://cdn.tailwindcss.com';"></script>
-    <!-- Monaco Editor (local first, CDN fallback) -->
-    <script src="vendor/monaco/min/vs/loader.js"
-            onerror="this.onerror=null;this.src='https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js';"></script>
     <!-- Temporarily disable AMD loader for UMD globals -->
     <script src="vendor/amd-guard.js"></script>
     <!-- D3.js and Flame Graph (local first, CDN fallback) -->
     <script src="vendor/d3.min.js"
             onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';"></script>
-    <script src="vendor/d3-flamegraph.min.js"
-            onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/d3-flame-graph@4.1.3/dist/d3-flamegraph.min.js';"></script>
-    <!-- SweetAlert2 (local first, CDN fallback) -->
+
+
+
+                <!-- SweetAlert2 (local first, CDN fallback) -->
     <script src="vendor/sweetalert2.all.min.js"
             onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js';"></script>
     <!-- Restore AMD loader -->
     <script src="vendor/amd-restore.js"></script>
+    <!-- Monaco Editor (local first, CDN fallback) -->
+    <script src="vendor/monaco/min/vs/loader.js"
+            onerror="this.onerror=null;this.src='https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js';"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         body {
@@ -293,13 +294,7 @@ int main() {
                     </div>
                 </div>
                 
-                <!-- Flame Graph -->
-                <div class="mb-4">
-                    <h3 class="text-xs font-medium text-gray-400 mb-2">Flame Graph</h3>
-                    <div class="flame-graph-container">
-                        <div id="flameGraph" style="height: 300px;"></div>
-                    </div>
-                </div>
+
                 
                 <!-- Statistics Dashboard -->
                 <div class="grid grid-cols-4 gap-3 mb-4">

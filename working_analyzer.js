@@ -888,156 +888,9 @@ class WorkingAnalyzer {
         img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
     }
 
-    createFlameGraph() {
-        const container = document.getElementById('flameGraph');
-        if (!container) return;
-        
-        container.innerHTML = '';
-        
-        // Check if d3-flame-graph is available
-        if (typeof d3flamegraph === 'undefined') {
-            container.innerHTML = '<div class="text-gray-500 text-center py-8 text-sm">Flame graph library not loaded</div>';
-            return;
-        }
-        
-        // Generate flame graph data from timeline data
-        const flameData = this.generateFlameGraphData();
-        
-        if (!flameData || flameData.children.length === 0) {
-            container.innerHTML = '<div class="text-gray-500 text-center py-8 text-sm">No data available for flame graph</div>';
-            return;
-        }
-        
-        // Create flame graph
-        const chart = d3flamegraph()
-            .width(container.offsetWidth)
-            .height(300)
-            .cellHeight(18)
-            .minCellWidth(2)
-            .transitionDuration(250)
-            .sort(false)
-            .inverted(true);
-        
-        // Set up tooltip
-        const tooltip = d3.select('body').append('div')
-            .attr('class', 'flamegraph-tooltip')
-            .style('position', 'absolute')
-            .style('visibility', 'hidden')
-            .style('background', 'rgba(0, 0, 0, 0.8)')
-            .style('color', 'white')
-            .style('padding', '8px')
-            .style('border-radius', '4px')
-            .style('font-size', '11px')
-            .style('font-family', 'Inter, monospace');
-        
-        chart.tooltip((d) => {
-            const percentage = ((d.value / flameData.value) * 100).toFixed(2);
-            return `${d.name}<br/>Time: ${this.formatLatency(d.value)}<br/>Percentage: ${percentage}%`;
-        });
-        
-        // Render the chart
-        d3.select(container)
-            .datum(flameData)
-            .call(chart);
-        
-        // Add zoom controls
-        this.addFlameGraphControls(container, chart);
-        
-        console.log('Flame graph created successfully');
-    }
-    
-    generateFlameGraphData() {
-        if (!this.timelineData || this.timelineData.length === 0) {
-            return null;
-        }
-        
-        // Convert timeline data to flame graph format
-        const root = {
-            name: 'main()',
-            value: 0,
-            children: []
-        };
-        
-        // Group operations by type and create hierarchy
-        const categories = {
-            'memory': { name: 'Memory Operations', value: 0, children: [] },
-            'cpu': { name: 'CPU Operations', value: 0, children: [] },
-            'cache': { name: 'Cache Operations', value: 0, children: [] },
-            'function': { name: 'Function Calls', value: 0, children: [] },
-            'sync': { name: 'Synchronization', value: 0, children: [] },
-            'branch': { name: 'Branch Operations', value: 0, children: [] }
-        };
-        
-        this.timelineData.forEach(event => {
-            const category = categories[event.category];
-            if (category) {
-                category.value += event.duration;
-                category.children.push({
-                    name: `${event.name} (line ${event.line})`,
-                    value: event.duration,
-                    data: event
-                });
-            }
-        });
-        
-        // Add non-empty categories to root
-        Object.values(categories).forEach(category => {
-            if (category.value > 0) {
-                root.children.push(category);
-                root.value += category.value;
-            }
-        });
-        
-        return root.value > 0 ? root : null;
-    }
-    
-    addFlameGraphControls(container, chart) {
-        const controls = document.createElement('div');
-        controls.className = 'flex justify-center space-x-2 mt-3';
-        controls.innerHTML = `
-            <button id="flame-reset" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-xs">Reset Zoom</button>
-            <button id="flame-download" class="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-xs">Download SVG</button>
-        `;
-        
-        container.appendChild(controls);
-        
-        // Add event listeners
-        document.getElementById('flame-reset').addEventListener('click', () => {
-            chart.resetZoom();
-        });
-        
-        document.getElementById('flame-download').addEventListener('click', () => {
-            const svg = container.querySelector('svg');
-            if (svg) {
-                const svgData = new XMLSerializer().serializeToString(svg);
-                const blob = new Blob([svgData], { type: 'image/svg+xml' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'flame-graph.svg';
-                a.click();
-                URL.revokeObjectURL(url);
-            }
-        });
-    }
 
-    showTooltip(event, eventData) {
-        const tooltip = document.getElementById('tooltip');
-        tooltip.innerHTML = `
-            <strong>${eventData.name}</strong><br>
-            Line: ${eventData.line}<br>
-            Duration: ${this.formatLatency(eventData.duration)}<br>
-            Category: ${eventData.category}<br>
-            <code>${eventData.original}</code>
-        `;
-        tooltip.style.display = 'block';
-        tooltip.style.left = event.pageX + 10 + 'px';
-        tooltip.style.top = event.pageY - 10 + 'px';
-    }
 
-    hideTooltip() {
-        document.getElementById('tooltip').style.display = 'none';
-    }
+
 
     updateStatistics(summary) {
         document.getElementById('totalOps').textContent = summary.totalOperations;
@@ -1363,8 +1216,7 @@ function analyzeCode() {
             console.log('Creating timeline...');
             analyzer.createTimelineVisualization();
             
-            console.log('Creating flame graph...');
-            analyzer.createFlameGraph();
+
             
             document.getElementById('timelineVisualization').classList.remove('hidden');
             analysisStatus.textContent = compareMode ? 'Comparison complete' : 'Analysis complete';
