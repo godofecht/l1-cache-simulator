@@ -26,10 +26,6 @@
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-  <a href="https://github.com/godofecht/l1-cache-simulator">
-    <img src="https://via.placeholder.com/80/1e1e1e/ffffff?text=C++" alt="Logo" width="80" height="80">
-  </a>
-
 <h3 align="center">C++ Performance Analyzer</h3>
 
   <p align="center">
@@ -75,7 +71,6 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
-[![Product Name Screen Shot][product-screenshot]]
 
 The C++ Performance Analyzer is a sophisticated web-based tool designed to help developers understand the performance characteristics of their C++ code. It provides real-time analysis of memory operations, cache performance, and CPU usage with interactive timeline visualizations.
 
@@ -192,12 +187,15 @@ Don't forget to give the project a star! Thanks again!
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
+The third-party builds under `vendor/` keep their own licences. See
+`THIRD-PARTY-NOTICES.md`.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- CONTACT -->
 ## Contact
 
-Your Name - [@twitter_handle](https://twitter.com/twitter_handle) - email@email_client.com
+Abhishek Shivakumar - abhishek.shivakumar@gmail.com
 
 Project Link: [https://github.com/godofecht/l1-cache-simulator](https://github.com/godofecht/l1-cache-simulator)
 
@@ -225,7 +223,6 @@ Project Link: [https://github.com/godofecht/l1-cache-simulator](https://github.c
 [issues-url]: https://github.com/godofecht/l1-cache-simulator/issues
 [license-shield]: https://img.shields.io/github/license/godofecht/l1-cache-simulator.svg?style=for-the-badge
 [license-url]: https://github.com/godofecht/l1-cache-simulator/blob/main/LICENSE
-[product-screenshot]: https://via.placeholder.com/800x400/1e1e1e/ffffff?text=C+++Performance+Analyzer+Timeline+Visualization
 
 <!-- Technology badges -->
 [Monaco.com]: https://img.shields.io/badge/Monaco%20Editor-007ACC?style=for-the-badge&logo=visual-studio-code&logoColor=white

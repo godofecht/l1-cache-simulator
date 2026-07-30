@@ -1,6 +1,10 @@
 MIT License
 
-Copyright (c) 2026 godofecht
+Copyright (c) 2026 Abhishek Shivakumar
+
+This licence covers the code written for this project. It does not cover the
+third-party builds under vendor/, which stay under their own licences and
+copyright holders. See THIRD-PARTY-NOTICES.md.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
