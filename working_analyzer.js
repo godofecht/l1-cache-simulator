@@ -21,7 +21,7 @@ class WorkingAnalyzer {
         this.analysisParams = params;
         
         try {
-            const operations = this.parseCode(code);
+            const operations = this.applyCacheModel(this.parseCode(code), code);
             console.log('Parsed operations:', operations.length);
             console.log('First operation sample:', operations[0]);
             
@@ -251,6 +251,78 @@ class WorkingAnalyzer {
         return operations;
     }
     
+    // Runs the code's loops through the L1 cache model (cache_model.js) and
+    // replaces the fixed costs of array accesses and loops with what the
+    // model measured. Array Size, Loop Iterations, Thread Count and Cache Line
+    // Size all feed the model.
+    applyCacheModel(operations, code) {
+        this.cacheResult = null;
+        if (typeof CacheModel === 'undefined') return operations;
+        let sim;
+        try {
+            sim = CacheModel.simulate(code, this.analysisParams);
+        } catch (error) {
+            console.error('Cache model failed:', error);
+            return operations;
+        }
+        this.cacheResult = sim;
+        const source = code.split('\n');
+        const out = [];
+        const memoryLines = new Set();
+        const memoryOp = (line, typeHint) => {
+            memoryLines.add(line);
+            const m = sim.lines[line];
+            const pct = m.accesses ? ((m.misses / m.accesses) * 100).toFixed(1) : '0.0';
+            const kinds = [];
+            if (m.cold) kinds.push(`${m.cold} first touch`);
+            if (m.capacity) kinds.push(`${m.capacity} evicted earlier`);
+            if (m.coherence) kinds.push(`${m.coherence} lost to another thread's write`);
+            let description = `L1 model: ${m.accesses} accesses to ${m.arrays.join(', ')}: ${m.hits} hits, ${m.misses} misses (${pct}%)`;
+            if (kinds.length) description += `. Misses: ${kinds.join(', ')}`;
+            if (sim.summary.threads > 1) description += `. Time shown is the slowest of ${sim.summary.threads} threads`;
+            if (m.unknownIndex) description += '. Some index values could not be worked out and were taken as 0';
+            return {
+                type: typeHint === 'memory_write' ? 'memory_write' : 'memory_read',
+                name: 'Array Access',
+                line,
+                original: (source[line - 1] || '').trim(),
+                latency: m.latency,
+                l1Equivalents: m.latency / CacheModel.HIT_NS,
+                depth: 1,
+                category: 'memory',
+                description,
+                cache: m
+            };
+        };
+        for (const op of operations) {
+            const loop = sim.loops[op.line];
+            if (loop && (op.name === 'Loop Branch' || op.name === 'Loop Body' || op.name === 'While Loop')) {
+                const iterations = loop.slowestThread;
+                const unit = op.type === 'branch' ? this.operations.branch.latency : this.operations.computation.latency;
+                const threads = sim.summary.threads > 1 && loop.iterations !== loop.slowestThread
+                    ? ` (${loop.iterations} in total, split across threads)` : '';
+                out.push({
+                    ...op,
+                    latency: unit * iterations,
+                    l1Equivalents: unit * iterations,
+                    description: op.type === 'branch' ? `Loop with ${iterations} iterations${threads}` : op.description
+                });
+                continue;
+            }
+            if (sim.lines[op.line]) {
+                if (!memoryLines.has(op.line)) out.push(memoryOp(op.line, op.type));
+                continue;
+            }
+            out.push(op);
+        }
+        for (const line of Object.keys(sim.lines).map(Number)) {
+            if (!memoryLines.has(line)) out.push(memoryOp(line, null));
+        }
+        return out.map((op, i) => ({ op, i }))
+            .sort((a, b) => (a.op.line - b.op.line) || (a.i - b.i))
+            .map(x => x.op);
+    }
+
     calculateLoopIterations(loopLine) {
         // Try to extract loop bounds from the line
         const match = loopLine.match(/for\s*\([^;]*;\s*[^<]*<\s*(\d+)/);
@@ -410,6 +482,7 @@ class WorkingAnalyzer {
         
         // Calculate hotspots (operations with high latency)
         const avgLatency = totalLatency / detailedOps.length;
+        if (this.cacheResult) memoryAccesses = this.cacheResult.summary.accesses;
         const hotspots = detailedOps.filter(op => op.latency > avgLatency * 2).length;
         
         return {
@@ -421,7 +494,9 @@ class WorkingAnalyzer {
                 maxDepth,
                 hotspots,
                 averageLatency: avgLatency,
-                operationCount: detailedOps.length
+                operationCount: detailedOps.length,
+                totalOperations: detailedOps.length,
+                cache: this.cacheResult ? this.cacheResult.summary : null
             }
         };
     }
@@ -1385,8 +1460,26 @@ function displayResults(analysisResult) {
     `;
     }).join('');
     
-    resultsContainer.innerHTML = resultsHTML;
+    resultsContainer.innerHTML = cacheSummaryHTML(analysisResult.summary.cache) + resultsHTML;
     console.log('Results displayed');
+}
+
+function cacheSummaryHTML(c) {
+    if (!c) return '';
+    const kib = c.sizeBytes / 1024;
+    const pct = c.accesses ? ((c.misses / c.accesses) * 100).toFixed(1) : '0.0';
+    const rounded = c.lineSize !== c.lineSizeRequested
+        ? ` (${c.lineSizeRequested} rounded to a power of two)` : '';
+    const notes = (c.notes || []).concat(c.capped ? [`Stopped after ${c.maxAccesses.toLocaleString()} accesses; later accesses are not counted.`] : []);
+    return `
+        <div id="cacheSummary" class="bg-gray-900 rounded p-2 border border-blue-700 text-xs text-gray-300 mb-2">
+            <div class="text-blue-400 font-semibold mb-1">L1 cache model</div>
+            <div>${kib} KiB, ${c.ways}-way, ${c.sets} sets of ${c.lineSize}-byte lines${rounded}, LRU. ${c.threads} thread${c.threads > 1 ? 's, one L1 each' : ''}.</div>
+            <div>${c.accesses.toLocaleString()} array accesses: <span class="text-green-400">${c.hits.toLocaleString()} hits</span>, <span class="text-red-400">${c.misses.toLocaleString()} misses</span> (${pct}%).
+                Misses: ${c.cold.toLocaleString()} first touch, ${c.capacity.toLocaleString()} evicted earlier, ${c.coherence.toLocaleString()} lost to another thread's write.</div>
+            <div class="text-gray-500">A hit costs ${c.hitNs} ns and a miss ${c.missNs} ns.</div>
+            ${notes.map(n => `<div class="text-yellow-500">${n}</div>`).join('')}
+        </div>`;
 }
 
 function loadTemplate() {
@@ -1655,6 +1748,7 @@ function printReport() {
                             <tr><td>Loop Iterations</td><td>${analyzer.analysisParams.loopIterations}</td></tr>
                             <tr><td>Thread Count</td><td>${analyzer.analysisParams.threadCount}</td></tr>
                             <tr><td>Cache Line Size</td><td>${analyzer.analysisParams.cacheLineSize}</td></tr>
+                            ${results.summary.cache ? `<tr><td>L1 hits / misses</td><td>${results.summary.cache.hits} / ${results.summary.cache.misses}</td></tr>` : ''}
                         </table>
                     </div>
                     
