@@ -12,12 +12,15 @@ The page is called the C++ Performance Analyzer. You type or load a C++ program,
 
 The estimates are expressed in "L1" units too. The L1 cache is the smallest and fastest memory inside a processor core. Reading from it takes about one nanosecond, while reading from main memory takes about a hundred. Counting cost in L1 units shows how many fast cache reads a slower operation is worth.
 
-The analyzer does not compile or run your C++. It reads the code one line at a time in JavaScript, matches each line against patterns (an array write, a loop, a function call) and adds up fixed costs from a table. That makes it a model you can read and change in one file.
+The analyzer does not compile your C++. It reads the code in JavaScript and does two things. It matches each line against patterns (a loop, a function call, a lock) and gives it a cost from a table. It also runs the loops itself, works out the memory address of every array access, and sends each address through a model of an L1 cache. Array accesses then cost 1 ns when the cache has the data (a hit) and 100 ns when it does not (a miss). Change the cache line size, the array size or the number of threads and the hit and miss counts change with them.
 
 ## What you can learn from it
 
 - Why memory access is slow compared with arithmetic, and why processors have caches (Computer Science: the memory hierarchy).
 - How a loop multiplies the cost of its body by the number of times it runs.
+- Why reading an array in order is fast: one miss brings in a whole cache line, and the next few accesses hit.
+- Why a bigger cache line helps a strided loop, and why an array larger than the cache misses again on a second pass.
+- How threads that write to the same cache line slow each other down (false sharing).
 - How a simple cost model turns source code into a time estimate, and where such a model is too simple.
 - How a web page can parse text with regular expressions (patterns that match pieces of text).
 - How the D3 library draws a zoomable timeline in the browser.
@@ -28,8 +31,14 @@ The analyzer does not compile or run your C++. It reads the code one line at a t
 
 1. [Open the live demo](https://godofecht.github.io/l1-cache-simulator/).
 2. Edit the code in the editor, or pick an example from **Load Template...**: Basic Operations, Vector Processing, Matrix Multiplication, Cache Analysis or Multithreading.
-3. Set the numbers under **Parameters** if you want to. **Loop Iterations** is used for any loop whose limit is a variable name instead of a number.
-4. Press **Run**. The **Output** panel fills with one card per line that matched a pattern, and the **Performance Analysis** section appears below.
+3. Set the numbers under **Parameters** if you want to:
+   - **Array Size**: the number of elements in any array whose size the code does not give, such as a `std::vector<int>& v` function parameter.
+   - **Loop Iterations**: how many times a `while` loop runs, and any `for` loop whose limit the analyzer cannot work out.
+   - **Thread Count**: how many threads share each function's outer loop. Each thread has its own L1 cache.
+   - **Cache Line Size**: the size of one cache line in bytes. It is rounded to a power of two.
+4. Press **Run**. The **Output** panel starts with an **L1 cache model** card: the cache's size and shape, and the total hits and misses. Below it is one card per line. A line that reads or writes an array shows how many accesses it made and how many hit or missed. The **Performance Analysis** section appears below.
+
+A quick experiment: load **Cache Analysis**, press **Run**, then change **Cache Line Size** from 64 to 128 and press **Run** again. The first loop steps 64 bytes at a time, so at 64 every access misses and at 128 half of them hit.
 
 Controls:
 
@@ -72,6 +81,14 @@ The page is plain HTML and JavaScript with no build step. All the libraries it n
 
 3. Open `http://localhost:8000` in your browser. You should see the editor with a short example program. Press **Run** to analyse it.
 
+To run the checks for the cache model you need [Node.js](https://nodejs.org/). From the project folder:
+
+```bash
+node tests/cache_model.test.js
+```
+
+Each check prints `ok` and the last line reads `9 passed`.
+
 Opening **index.html** straight from disk may stop the code editor from loading, because browsers limit what a page opened from a file can load, so use the server.
 
 ## How it works
@@ -86,9 +103,18 @@ When you press **Run**, `analyzeCode()` in **working_analyzer.js** reads the cod
 | Branch (one loop test) | 3 |
 | Function call | 17 |
 | Mutex lock | 17 |
-| Memory read or write (an array element) | 100 |
+| Array access that hits in L1 | 1 |
+| Array access that misses in L1 | 100 |
 
-A `for` loop costs one branch plus 0.5 ns of work for every iteration. The iteration count comes from the number after `<` in the loop, or from **Loop Iterations** if the limit is a variable. A method call such as `v.push_back()` costs two function calls. A line with `template` or angle brackets, which includes `#include <vector>`, costs five function calls. The "L1" figure is the cost divided by the 1 ns of an L1 hit.
+A `for` loop costs one branch plus 0.5 ns of work for every iteration. The cache model counts the iterations by running the loop. A method call such as `v.push_back()` costs two function calls. A line with `template` or angle brackets, which includes `#include <vector>`, costs five function calls. The "L1" figure is the cost divided by the 1 ns of an L1 hit.
+
+Array accesses are costed by **cache_model.js**. `CacheModel.simulate()` turns the code into tokens, finds the functions, loops and statements, and runs them:
+
+- It knows arrays declared as C arrays (`int a[N]`), `std::array`, `std::vector` (including a vector of vectors) and `new T[n]`. An array the code does not size has **Array Size** elements. Arrays sit one after another in memory, each starting on a 64-byte boundary. A 2D array is stored row by row.
+- A `for` loop runs with its real start, condition and step, so `i += 16` or `i < v.size()` work. Integer variables such as `int idx = (i * 7) % n;` are worked out as the loop runs. `while` loops run **Loop Iterations** times. The body of an `if` always runs and `else` is skipped. Each function body runs once, top to bottom, and calls are not followed.
+- Each access goes to a 32 KiB, 8-way set associative cache with least recently used (LRU) replacement. The address picks a line (address divided by the line size), and the line picks a set (line number modulo the number of sets). With 64-byte lines there are 32768 / (64 x 8) = 64 sets.
+- A miss is counted as "first touch" when that cache has never held the line, "evicted earlier" when it held it once and had to make room, or "lost to another thread's write".
+- With more than one thread, each function's outer loop is split into equal chunks, as OpenMP's `parallel for` does, and the threads take turns one iteration at a time. If the code uses a variable named `thread_id`, `tid`, `threadId` or `thread_idx`, every thread runs the whole function with its own number in that variable. A write by one thread removes the line from the other threads' caches. A line's time is the time of its slowest thread.
 
 `generateTimelineData()` then places each operation after the one before it on a track for its category: cpu, memory, cache, function, sync or branch. `createD3Timeline()` draws those tracks with D3.
 
@@ -96,6 +122,8 @@ A `for` loop costs one branch plus 0.5 ns of work for every iteration. The itera
 |---|---|
 | `index.html` | The page layout: editor, parameter boxes, output panel, timeline and statistics |
 | `working_analyzer.js` | The cost table, the line parser, the timeline drawing, the templates, and the export, share, compare and print functions |
+| `cache_model.js` | The L1 cache model: the code reader, the loop runner and the cache |
+| `tests/cache_model.test.js` | Checks for the cache model, run with Node.js |
 | `simulator.cpp` | A small C++ program that prints which compiler built it |
 | `simulator.s` | The ARM64 assembly a compiler produced from `simulator.cpp` on macOS |
 | `vendor/` | Local copies of Monaco Editor, D3, d3-flame-graph, SweetAlert2 and Tailwind CSS |
@@ -106,10 +134,12 @@ A `for` loop costs one branch plus 0.5 ns of work for every iteration. The itera
 
 1. Change a number in the `this.operations` table at the top of **working_analyzer.js**, for example the memory read cost, and see how the totals change.
 2. In `parseCode()` in **working_analyzer.js**, make `#include` lines cost nothing. At the moment they match the template pattern because of the angle brackets.
-3. Make **Array Size** matter. In `parseCode()`, give an array access a cache hit cost when the array fits in a 32 KB L1 cache and a memory cost when it does not.
-4. Make **Cache Line Size** matter. For a loop that steps through an array one element at a time, only one access per cache line misses. Use the line size to work out how many accesses hit.
-5. Add a template of your own to the `cppTemplates` object in **working_analyzer.js** and a matching `<option>` to the **Load Template...** list in **index.html**.
-6. Make **Share Link** work both ways: when the page loads, read the `data` value from the address, decode it and put the code and parameters back.
+3. Write a loop that reads a 512 by 512 matrix by rows, then one that reads it by columns. Compare the miss counts and explain the difference.
+4. Write two passes over a `std::vector<int>& v` parameter and raise **Array Size** from 4000 to 10000. The second pass stops hitting once the array no longer fits in 32 KiB.
+5. Set **Thread Count** to 4 and have each thread add to `counts[thread_id]`. Then change it to `counts[thread_id * 16]` and compare the misses.
+6. Change `L1_SIZE_BYTES` or `L1_WAYS` at the top of **cache_model.js**, or add a second, larger cache behind the first that a miss tries before going to memory.
+7. Add a template of your own to the `cppTemplates` object in **working_analyzer.js** and a matching `<option>` to the **Load Template...** list in **index.html**.
+8. Make **Share Link** work both ways: when the page loads, read the `data` value from the address, decode it and put the code and parameters back.
 
 ## Technical details
 
@@ -121,9 +151,12 @@ The page loads every library from `vendor/` first and falls back to a public con
 
 ## Project status
 
-This is a teaching model with fixed costs. It is not a measurement of real hardware. Known gaps:
+This is a teaching model. It is not a measurement of real hardware. Array accesses go through a modelled L1 cache; everything else still has a fixed cost. Known gaps:
 
-- Only **Loop Iterations** changes the result. **Array Size**, **Thread Count** and **Cache Line Size** are recorded but not used in the cost model yet.
+- The cache model follows loops, `if` bodies and simple integer variables. It does not follow function calls, pointer arithmetic, `else` branches or values stored in arrays. An index it cannot work out is taken as 0, and the card for that line says so.
+- There is one level of cache. A miss always costs 100 ns, with no L2 or L3 and no prefetching.
+- Threads take turns one iteration at a time. Real threads run at uneven speeds.
+- A run stops counting after 5 million array accesses and says so in the **L1 cache model** card.
 - A share link encodes the session, but the page does not read it back on load yet, so opening the link shows the default program.
 - Before the first run, the output panel shows a fixed "C++ Program Output" and "Assembly Output (simulator.s)" block. Neither comes from your code.
 - `vendor/d3-flamegraph.min.js` is included but not loaded by the page.
